@@ -1,8 +1,4 @@
 #!/usr/bin/env node
-/**
- * poly-order-relay/index.js
- * CommonJS app with ESM-safe dynamic import for @polymarket/clob-client
- */
 
 const express = require("express");
 const { Wallet } = require("ethers");
@@ -21,7 +17,6 @@ const POLYMARKET_PASSPHRASE = process.env.POLYMARKET_PASSPHRASE || "";
 
 app.use(express.json({ limit: "1mb" }));
 
-// Protect all routes except /health
 app.use((req, res, next) => {
   if (req.path === "/health") return next();
   if (RELAY_SECRET && req.headers["x-relay-secret"] !== RELAY_SECRET) {
@@ -43,15 +38,7 @@ function sleep(ms) {
 function normalizeTokenIdForClient(tokenId) {
   const raw = String(tokenId || "").trim();
   if (!raw) return raw;
-  // clob-client expects decimal tokenID string
-  if (raw.startsWith("0x")) return BigInt(raw).toString(10);
-  return raw;
-}
-
-function normalizeOrderType(orderType, OrderType) {
-  const t = String(orderType || "FAK").toUpperCase();
-  if (t === "FOK") return OrderType.FOK;
-  return OrderType.FAK;
+  return raw.startsWith("0x") ? BigInt(raw).toString(10) : raw;
 }
 
 function roundToTick(price, tick) {
@@ -62,12 +49,17 @@ function roundToTick(price, tick) {
   return Math.max(t, Math.min(1 - t, Number(rounded.toFixed(6))));
 }
 
+function normalizeOrderType(orderType, OrderType) {
+  const t = String(orderType || "FAK").toUpperCase();
+  return t === "FOK" ? OrderType.FOK : OrderType.FAK;
+}
+
 let cachedClient = null;
 let cachedClientKey = null;
 
 async function getAuthedClient() {
   const mod = await getClobModule();
-  const ClobClient = mod.ClobClient || mod.default?.ClobClient;
+  const ClobClient = mod.ClobClient || (mod.default && mod.default.ClobClient);
   if (!ClobClient) throw new Error("clob-client export ClobClient missing");
   if (!PRIVATE_KEY) throw new Error("POLYMARKET_PRIVATE_KEY not set");
 
@@ -76,7 +68,7 @@ async function getAuthedClient() {
   const sigType = PROXY_WALLET_ADDRESS ? 2 : 0;
 
   const key = JSON.stringify({
-    pk: PRIVATE_KEY.slice(0, 8),
+    pk: PRIVATE_KEY.slice(0, 10),
     funder,
     hasCreds: !!(POLYMARKET_API_KEY && POLYMARKET_API_SECRET && POLYMARKET_PASSPHRASE),
   });
@@ -88,7 +80,11 @@ async function getAuthedClient() {
       CLOB_HOST,
       CHAIN_ID,
       wallet,
-      { key: POLYMARKET_API_KEY, secret: POLYMARKET_API_SECRET, passphrase: POLYMARKET_PASSPHRASE },
+      {
+        key: POLYMARKET_API_KEY,
+        secret: POLYMARKET_API_SECRET,
+        passphrase: POLYMARKET_PASSPHRASE,
+      },
       sigType,
       funder
     );
@@ -108,7 +104,11 @@ async function getAuthedClient() {
     CLOB_HOST,
     CHAIN_ID,
     wallet,
-    { key: creds.apiKey, secret: creds.secret, passphrase: creds.passphrase },
+    {
+      key: creds.apiKey,
+      secret: creds.secret,
+      passphrase: creds.passphrase,
+    },
     sigType,
     funder
   );
@@ -116,27 +116,38 @@ async function getAuthedClient() {
   return cachedClient;
 }
 
-async function executeTradeCore({ tokenId, side, amount, size, price, orderType }) {
+async function executeTradeCore(input) {
   const mod = await getClobModule();
-  const Side = mod.Side || mod.default?.Side;
-  const OrderType = mod.OrderType || mod.default?.OrderType;
+  const Side = mod.Side || (mod.default && mod.default.Side);
+  const OrderType = mod.OrderType || (mod.default && mod.default.OrderType);
   if (!Side || !OrderType) throw new Error("clob-client enum exports missing");
 
+  const tokenId = input && input.tokenId;
+  const side = input && input.side;
+  const amount = input && input.amount;
+  const size = input && input.size;
+  const price = input && input.price;
+  const orderType = (input && input.orderType) || "FAK";
+
   if (!tokenId || !side || (!amount && !size)) {
-    return { status: 400, body: { success: false, submitted: false, error: "Missing: tokenId, side, amount/size" } };
+    return {
+      status: 400,
+      body: { success: false, submitted: false, error: "Missing: tokenId, side, amount/size" },
+    };
   }
 
   const client = await getAuthedClient();
   const tokenID = normalizeTokenIdForClient(tokenId);
+
   const qty = Math.max(5, Number(amount || size));
   if (!Number.isFinite(qty) || qty <= 0) {
-    return { status: 400, body: { success: false, submitted: false, error: "Invalid size/amount" } };
+    return { status: 400, body: { success: false, submitted: false, error: "Invalid amount/size" } };
   }
 
   let tickSize = 0.01;
   try {
     const book = await client.getOrderBook(tokenID);
-    tickSize = Number(book?.market?.minimum_tick_size || 0.01);
+    tickSize = Number((book && book.market && book.market.minimum_tick_size) || 0.01);
   } catch {}
 
   let tradePrice = Number(price);
@@ -148,8 +159,8 @@ async function executeTradeCore({ tokenId, side, amount, size, price, orderType 
       tradePrice = 0.5;
     }
   }
-  const finalPrice = roundToTick(tradePrice, tickSize);
 
+  const finalPrice = roundToTick(tradePrice, tickSize);
   const tradeSide = String(side).toUpperCase() === "BUY" ? Side.BUY : Side.SELL;
   const oType = normalizeOrderType(orderType, OrderType);
 
@@ -159,15 +170,14 @@ async function executeTradeCore({ tokenId, side, amount, size, price, orderType 
       const order = await client.createOrder({
         tokenID,
         price: finalPrice,
-        size: roundedAmount,
+        size: Number(qty.toFixed(2)),
         side: tradeSide,
         orderType: oType,
       });
+
       const result = await client.postOrder(order, oType);
 
-      );
-
-      if (result?.success) {
+      if (result && result.success) {
         return {
           status: 200,
           body: {
@@ -182,10 +192,11 @@ async function executeTradeCore({ tokenId, side, amount, size, price, orderType 
         };
       }
 
-      lastError = result?.error || result?.errorMsg || "Order rejected";
+      lastError = (result && (result.error || result.errorMsg)) || "Order rejected";
     } catch (e) {
-      lastError = e?.message || String(e);
+      lastError = (e && e.message) || String(e);
     }
+
     if (attempt < 3) await sleep(400);
   }
 
@@ -211,94 +222,32 @@ app.get("/health", (_req, res) => {
   });
 });
 
-// Preferred route
 app.post("/trade", async (req, res) => {
-  const { tokenId, side, amount, price, size, orderType = "FAK" } = req.body;
-
-  if (!tokenId || !side || (!amount && !size)) {
-    return res.status(400).json({ error: "Missing: tokenId, side, amount/size" });
-  }
-
   try {
-    const mod = await getClobModule();
-    const Side = mod.Side || mod.default?.Side;
-    const OrderType = mod.OrderType || mod.default?.OrderType;
-    if (!Side || !OrderType) throw new Error("clob-client enum exports missing");
-
-    const client = await getAuthedClient();
-
-    const tokenID = String(tokenId).startsWith("0x")
-      ? BigInt(tokenId).toString(10)
-      : String(tokenId);
-
-    const tradeAmount = Math.max(5, Number(amount || size));
-    if (!Number.isFinite(tradeAmount)) {
-      return res.status(400).json({ error: "Invalid amount/size" });
-    }
-
-    let tickSize = 0.01;
-    try {
-      const book = await client.getOrderBook(tokenID);
-      tickSize = Number(book?.market?.minimum_tick_size || 0.01);
-    } catch {}
-
-    const tradeSide = String(side).toUpperCase() === "BUY" ? Side.BUY : Side.SELL;
-    const oType = String(orderType).toUpperCase() === "FOK" ? OrderType.FOK : OrderType.FAK;
-    const finalPrice = Math.max(
-      tickSize,
-      Math.min(1 - tickSize, Math.round(Number(price || 0.5) / tickSize) * tickSize)
-    );
-
-    const order = await client.createOrder({
-      tokenID,
-      price: finalPrice,
-      size: Number(tradeAmount.toFixed(2)),
-      side: tradeSide,
-      orderType: oType,
-    });
-
-    const result = await client.postOrder(order, oType);
-
-    if (result?.success) {
-      return res.json({
-        success: true,
-        submitted: true,
-        orderID: result.orderID || result.order_id || null,
-        data: result,
-        finalPrice,
-        tickSize: String(tickSize),
-      });
-    }
-
-    return res.status(400).json({
-      success: false,
-      submitted: false,
-      error: result?.error || result?.errorMsg || "Order rejected",
-      finalPrice,
-      tickSize: String(tickSize),
-    });
-  } catch (err) {
+    const out = await executeTradeCore(req.body || {});
+    return res.status(out.status).json(out.body);
+  } catch (e) {
     return res.status(500).json({
       success: false,
       submitted: false,
-      error: err?.message || String(err),
+      error: (e && e.message) || String(e),
     });
   }
 });
 
-
-// Legacy route:
-// 1) {order, headers} => forward pre-signed order to CLOB
-// 2) {tokenId, side, size, price} => execute like /trade
 app.post("/order", async (req, res) => {
   try {
-    const { order, headers } = req.body || {};
+    const body = req.body || {};
+    const order = body.order;
+    const headers = body.headers || body.polyHeaders;
+
     if (order && headers) {
       const resp = await fetch(`${CLOB_HOST}/order`, {
         method: "POST",
         headers: { "Content-Type": "application/json", ...headers },
         body: JSON.stringify(order),
       });
+
       const text = await resp.text();
       let data;
       try {
@@ -306,30 +255,40 @@ app.post("/order", async (req, res) => {
       } catch {
         data = { raw: text };
       }
+
       return res.status(resp.status).json({
         success: resp.ok,
         status: resp.status,
         data,
-        orderID: data?.orderID || null,
+        orderID: data && (data.orderID || data.order_id) ? (data.orderID || data.order_id) : null,
       });
     }
 
-    const out = await executeTradeCore(req.body || {});
+    const out = await executeTradeCore(body);
     return res.status(out.status).json(out.body);
   } catch (e) {
-    return res.status(500).json({ error: e?.message || String(e) });
+    return res.status(500).json({
+      success: false,
+      submitted: false,
+      error: (e && e.message) || String(e),
+    });
   }
 });
 
 app.post("/proxy", async (req, res) => {
   try {
-    const { url, method = "POST", headers = {}, body } = req.body || {};
+    const body = req.body || {};
+    const url = body.url;
+    const method = body.method || "POST";
+    const headers = body.headers || {};
+    const payload = body.body;
+
     if (!url) return res.status(400).json({ error: "Missing 'url'" });
 
     const resp = await fetch(url, {
       method,
       headers: { "Content-Type": "application/json", ...headers },
-      body: body ? (typeof body === "string" ? body : JSON.stringify(body)) : undefined,
+      body: payload ? (typeof payload === "string" ? payload : JSON.stringify(payload)) : undefined,
     });
 
     const text = await resp.text();
@@ -340,9 +299,13 @@ app.post("/proxy", async (req, res) => {
       data = { raw: text };
     }
 
-    return res.status(resp.status).json({ success: resp.ok, status: resp.status, data });
+    return res.status(resp.status).json({
+      success: resp.ok,
+      status: resp.status,
+      data,
+    });
   } catch (e) {
-    return res.status(502).json({ error: e?.message || String(e) });
+    return res.status(502).json({ error: (e && e.message) || String(e) });
   }
 });
 
