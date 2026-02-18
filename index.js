@@ -7,15 +7,17 @@ app.use(express.json());
 
 const proxyAgent = new HttpsProxyAgent("http://35.229.117.3:3128");
 
+app.get("/health", (req, res) => {
+  res.json({ ok: true, timestamp: new Date().toISOString() });
+});
+
 app.post("/order", async (req, res) => {
   try {
     const payload = req.body;
     
     const response = await fetch("https://clob.polymarket.com/order", {
       method: "POST",
-      headers: {
-        "Content-Type": "application/json"
-      },
+      headers: { "Content-Type": "application/json" },
       agent: proxyAgent,
       body: JSON.stringify(payload)
     });
@@ -28,10 +30,7 @@ app.post("/order", async (req, res) => {
   }
 });
 
-app.get("/health", (req, res) => {
-  res.json({ ok: true, timestamp: new Date().toISOString() });
-});
-
-app.listen(process.env.PORT || 3000, () => {
-  console.log("poly-order-relay listening");
+const port = process.env.PORT || 3000;
+app.listen(port, () => {
+  console.log(`poly-order-relay listening on port ${port}`);
 });
