@@ -27,13 +27,14 @@ app.post("/order", async (req, res) => {
   try {
     if (!wallet) return res.status(500).json({ error: "Wallet not initialized" });
 
-    const { tokenId, price, size, side } = req.body; // side: 0=BUY, 1=SELL
-    if (!tokenId || !price || !size) throw new Error("Missing params");
+    const { tokenId, price, size, side } = req.body;
+    if (!tokenId || price == null || size == null) {
+      throw new Error("Missing tokenId, price, or size");
+    }
 
     const orderSalt = BigInt(Date.now());
-    const expiration = BigInt(Math.floor(Date.now() / 1000) + 86400); // 24h
+    const expiration = BigInt(Math.floor(Date.now() / 1000) + 86400);
 
-    // Polymarket CLOB Order [web:18]
     const order = {
       salt: orderSalt.toString(),
       maker: wallet.address,
@@ -68,9 +69,8 @@ app.post("/order", async (req, res) => {
       ]
     };
 
-    const signature = await wallet.signTypedData(domain, types, order);[web:27][web:33]
+    const signature = await wallet.signTypedData(domain, types, order);
 
-    // Submit to CLOB [web:18]
     const clobRes = await fetch("https://clob.polymarket.com/order", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -79,19 +79,19 @@ app.post("/order", async (req, res) => {
 
     const result = await clobRes.json();
 
-    if (result.success !== true) {
-      throw new Error(result.errorMsg || `CLOB error: ${clobRes.status}`);
-    }
+    res.json({ 
+      success: !!result.orderId, 
+      orderId: result.orderId || "pending",
+      status: "submitted" 
+    });
 
-    res.json({ success: true, orderId: result.orderId, status: "live" });
   } catch (e) {
-    console.error("Order failed:", e);
+    console.error("Order error:", e.message);
     res.status(500).json({ error: e.message });
   }
 });
 
-// Railway bind [web:26]
 const port = process.env.PORT || 3000;
 app.listen(port, "0.0.0.0", () => {
-  console.log(`🚀 Poly Order Relay live on ${port}`);
+  console.log(`🚀 Poly Order Relay on port ${port}`);
 });
