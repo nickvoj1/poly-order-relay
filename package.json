@@ -1,12 +1,10 @@
 {
-  "name": "poly-order-relay",
-  "version": "1.0.0",
-  "scripts": {
-    "start": "node index.js"
-  },
   "dependencies": {
     "express": "^4.19.2",
     "@polymarket/clob-client": "latest",
     "ethers": "^5.7.2"
+  },
+  "scripts": {
+    "start": "node index.js"
   }
 }
