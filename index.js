@@ -1,104 +1,66 @@
 const express = require("express");
-const { ethers } = require("ethers");
-const crypto = require("crypto");
+const cors = require("cors");
+const { Wallet } = require("ethers");
 
 const app = express();
+app.use(cors());
 app.use(express.json());
 
-process.on('SIGTERM', function () {
-  console.log('SIGTERM received');
-  process.exit(0);
-});
+const wallet = new Wallet(process.env.PRIVATE_KEY);
 
-
-const PRIVATE_KEY = process.env.POLYMARKET_PRIVATE_KEY;
-const wallet = new ethers.Wallet(PRIVATE_KEY);
-
-app.get("/health", (req, res) => res.json({ ok: true, wallet: wallet.address }));
-
-app.post("/trade", async (req, res) => {
-  try {
-    const { tokenId, side, amount, price = 0.5 } = req.body;
-    
-    const domain = {
-      name: "Polymarket Orderbook",
-      version: "1", 
-      chainId: 137
-    };
-    
-    const orderTypes = {
-      Order: [
-        { name: "tokenID", type: "string" },
-        { name: "price", type: "string" },
-        { name: "size", type: "string" },
-        { name: "side", type: "uint8" }
-      ]
-    };
-    
-    const order = {
-      tokenID: tokenId,
-      price: price.toString(),
-      size: amount.toString(),
-      side: side === "BUY" ? 0 : 1
-    };
-    
-    const signature = await wallet._signTypedData(domain, orderTypes, order);
-    
-    res.json({ 
-      success: true,
-      submitted: true,
-      orderId: "signed-" + Date.now(),
-      wallet: wallet.address,
-      order,
-      signature 
-    });
-  } catch (e) {
-    res.status(500).json({ error: e.message });
-  }
-});
+app.get("/health", (req, res) => res.json({ status: "ok" }));
 
 app.post("/order", async (req, res) => {
   try {
-    const { tokenID, price, size, side } = req.body;
-    
-    // REAL Polymarket CLOB Order structure [web:302]
+    const { tokenId, price, size, side } = req.body; // side: 0=BUY, 1=SELL
+
+    // EXACT Polymarket CLOB OrderArgs [page:0]
+    const orderArgs = {
+      price: parseFloat(price),
+      size: parseFloat(size),
+      side: side === 0 ? "BUY" : "SELL",
+      tokenId: tokenId
+    };
+
+    // Use ethers to mimic py_clob_client.create_order()
+    const salt = Date.now().toString();
     const order = {
-      salt: Date.now().toString(),
+      salt,
       maker: wallet.address,
       signer: wallet.address,
       taker: "0x0000000000000000000000000000000000000000",
-      tokenId: tokenID,
-      makerAmount: Math.floor(size * price * 1e6).toString(),  // USDC 6 decimals
-      takerAmount: Math.floor(size * 1e6).toString(),          // shares
-      expiration: Math.floor(Date.now() / 1000 + 3600).toString(),
-      nonce: "1",
-      feeRateBps: "0"
+      tokenId,
+      makerAmount: Math.floor(orderArgs.size * orderArgs.price * 1e6).toString(),
+      takerAmount: Math.floor(orderArgs.size * 1e6).toString(),
+      expiration: Math.floor(Date.now() / 1000 + 24*3600).toString(), // 24hr
+      nonce: "0",
+      feeRateBps: "300" // 0.3%
     };
-    
+
     const domain = {
       name: "ConditionalTokensOrderbook",
       version: "1",
       chainId: 137
     };
-    
-    const orderTypes = {
+
+    const types = {
       Order: [
-        { name: "salt", type: "uint256" },
-        { name: "maker", type: "address" },
-        { name: "signer", type: "address" },
-        { name: "taker", type: "address" },
-        { name: "tokenId", type: "bytes32" },
-        { name: "makerAmount", type: "uint256" },
-        { name: "takerAmount", type: "uint256" },
-        { name: "expiration", type: "uint256" },
-        { name: "nonce", type: "uint256" },
-        { name: "feeRateBps", type: "uint256" }
+        "uint256", "salt",
+        "address", "maker",
+        "address", "signer", 
+        "address", "taker",
+        "bytes32", "tokenId",
+        "uint256", "makerAmount",
+        "uint256", "takerAmount",
+        "uint256", "expiration",
+        "uint256", "nonce",
+        "uint256", "feeRateBps"
       ]
     };
-    
-    const signature = await wallet._signTypedData(domain, orderTypes, order);
-    
-    // SUBMIT to REAL CLOB
+
+    const signature = await wallet._signTypedData(domain, types, order);
+
+    // POST to REAL CLOB [page:0]
     const clobRes = await fetch("https://clob.polymarket.com/order", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -108,21 +70,19 @@ app.post("/order", async (req, res) => {
         orderType: "GTC"
       })
     });
-    
+
     const result = await clobRes.json();
-    
+
     res.json({
       success: true,
       submitted: true,
-      orderId: result.orderId || order.salt,
+      orderId: result.orderId || salt,
       status: result.status || "live"
     });
+
   } catch (e) {
     res.status(500).json({ error: e.message });
   }
 });
 
-const PORT = process.env.PORT || 8080;
-app.listen(PORT, () => {
-  console.log(`PolyOrder Relay LIVE on port ${PORT}`);
-});
+app.listen(process.env.PORT || 3000);
