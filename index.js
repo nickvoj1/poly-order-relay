@@ -1,44 +1,34 @@
 const express = require("express");
-const fetch = require("node-fetch");
+const { ClobClient } = require('polymarket-clob-client');
 
 const app = express();
 app.use(express.json());
 
-app.get("/health", (req, res) => res.json({ ok: true }));
-
-app.get("/test-clob", async (req, res) => {
-  try {
-    const response = await fetch("https://clob.polymarket.com/order", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({})
-    });
-    const text = await response.text();
-    res.json({ 
-      status: response.status,
-      geoblocked: text.includes("restricted"),
-      response: text.substring(0, 200)
-    });
-  } catch (e) {
-    res.json({ error: e.message });
-  }
+const PRIVATE_KEY = process.env.POLYMARKET_PRIVATE_KEY;
+const clobClient = new ClobClient({ 
+  signerKey: PRIVATE_KEY, 
+  chainId: 137 // Polygon
 });
 
-app.post("/order", async (req, res) => {
+app.get("/health", (req, res) => res.json({ ok: true }));
+
+app.post("/trade", async (req, res) => {
   try {
-    const response = await fetch("https://clob.polymarket.com/order", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(req.body)
+    const { market, amount, side } = req.body;
+    
+    const order = await clobClient.createOrder({
+      tokenID: market,  // "trump-2028", etc
+      price: side === 'buy' ? '1' : '0',
+      size: amount.toString(),
+      side: side === 'buy' ? 0 : 1
     });
     
-    const json = await response.json();
-    res.status(response.status).json(json);
+    res.json({ success: true, order });
   } catch (e) {
     res.status(500).json({ error: e.message });
   }
 });
 
-app.listen(process.env.PORT || 3000, () => {
-  console.log("poly-order-relay ready");
+app.listen(process.env.PORT || 8080, () => {
+  console.log("PolyOrder Relay + Signing LIVE");
 });
