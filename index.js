@@ -1,5 +1,5 @@
 const express = require("express");
-const { ClobClient } = require('polymarket-clob-client');
+const { ClobClient } = require('@polymarket/clob-client');  // NOT 'polymarket-clob-client'
 
 const app = express();
 app.use(express.json());
