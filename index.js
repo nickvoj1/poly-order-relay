@@ -1,5 +1,10 @@
 #!/usr/bin/env node
 
+const nodeCrypto = require("crypto");
+if (!globalThis.crypto) {
+  globalThis.crypto = nodeCrypto.webcrypto;
+}
+
 const express = require("express");
 const { Wallet } = require("ethers");
 
@@ -59,7 +64,7 @@ let cachedClientKey = null;
 
 async function getAuthedClient() {
   const mod = await getClobModule();
-  const ClobClient = mod.ClobClient || (mod.default && mod.default.ClobClient);
+  const ClobClient = mod.ClobClient || mod.default?.ClobClient;
   if (!ClobClient) throw new Error("clob-client export ClobClient missing");
   if (!PRIVATE_KEY) throw new Error("POLYMARKET_PRIVATE_KEY not set");
 
@@ -80,11 +85,7 @@ async function getAuthedClient() {
       CLOB_HOST,
       CHAIN_ID,
       wallet,
-      {
-        key: POLYMARKET_API_KEY,
-        secret: POLYMARKET_API_SECRET,
-        passphrase: POLYMARKET_PASSPHRASE,
-      },
+      { key: POLYMARKET_API_KEY, secret: POLYMARKET_API_SECRET, passphrase: POLYMARKET_PASSPHRASE },
       sigType,
       funder
     );
@@ -104,11 +105,7 @@ async function getAuthedClient() {
     CLOB_HOST,
     CHAIN_ID,
     wallet,
-    {
-      key: creds.apiKey,
-      secret: creds.secret,
-      passphrase: creds.passphrase,
-    },
+    { key: creds.apiKey, secret: creds.secret, passphrase: creds.passphrase },
     sigType,
     funder
   );
@@ -118,22 +115,19 @@ async function getAuthedClient() {
 
 async function executeTradeCore(input) {
   const mod = await getClobModule();
-  const Side = mod.Side || (mod.default && mod.default.Side);
-  const OrderType = mod.OrderType || (mod.default && mod.default.OrderType);
+  const Side = mod.Side || mod.default?.Side;
+  const OrderType = mod.OrderType || mod.default?.OrderType;
   if (!Side || !OrderType) throw new Error("clob-client enum exports missing");
 
-  const tokenId = input && input.tokenId;
-  const side = input && input.side;
-  const amount = input && input.amount;
-  const size = input && input.size;
-  const price = input && input.price;
-  const orderType = (input && input.orderType) || "FAK";
+  const tokenId = input?.tokenId || input?.tokenID;
+  const side = input?.side;
+  const amount = input?.amount;
+  const size = input?.size;
+  const price = input?.price;
+  const orderType = input?.orderType || "FAK";
 
   if (!tokenId || !side || (!amount && !size)) {
-    return {
-      status: 400,
-      body: { success: false, submitted: false, error: "Missing: tokenId, side, amount/size" },
-    };
+    return { status: 400, body: { success: false, submitted: false, error: "Missing: tokenId, side, amount/size" } };
   }
 
   const client = await getAuthedClient();
@@ -147,7 +141,7 @@ async function executeTradeCore(input) {
   let tickSize = 0.01;
   try {
     const book = await client.getOrderBook(tokenID);
-    tickSize = Number((book && book.market && book.market.minimum_tick_size) || 0.01);
+    tickSize = Number(book?.market?.minimum_tick_size || 0.01);
   } catch {}
 
   let tradePrice = Number(price);
@@ -177,7 +171,7 @@ async function executeTradeCore(input) {
 
       const result = await client.postOrder(order, oType);
 
-      if (result && result.success) {
+      if (result?.success) {
         return {
           status: 200,
           body: {
@@ -192,9 +186,9 @@ async function executeTradeCore(input) {
         };
       }
 
-      lastError = (result && (result.error || result.errorMsg)) || "Order rejected";
+      lastError = result?.error || result?.errorMsg || "Order rejected";
     } catch (e) {
-      lastError = (e && e.message) || String(e);
+      lastError = e?.message || String(e);
     }
 
     if (attempt < 3) await sleep(400);
@@ -227,11 +221,7 @@ app.post("/trade", async (req, res) => {
     const out = await executeTradeCore(req.body || {});
     return res.status(out.status).json(out.body);
   } catch (e) {
-    return res.status(500).json({
-      success: false,
-      submitted: false,
-      error: (e && e.message) || String(e),
-    });
+    return res.status(500).json({ success: false, submitted: false, error: e?.message || String(e) });
   }
 });
 
@@ -260,35 +250,26 @@ app.post("/order", async (req, res) => {
         success: resp.ok,
         status: resp.status,
         data,
-        orderID: data && (data.orderID || data.order_id) ? (data.orderID || data.order_id) : null,
+        orderID: data?.orderID || data?.order_id || null,
       });
     }
 
     const out = await executeTradeCore(body);
     return res.status(out.status).json(out.body);
   } catch (e) {
-    return res.status(500).json({
-      success: false,
-      submitted: false,
-      error: (e && e.message) || String(e),
-    });
+    return res.status(500).json({ success: false, submitted: false, error: e?.message || String(e) });
   }
 });
 
 app.post("/proxy", async (req, res) => {
   try {
-    const body = req.body || {};
-    const url = body.url;
-    const method = body.method || "POST";
-    const headers = body.headers || {};
-    const payload = body.body;
-
+    const { url, method = "POST", headers = {}, body } = req.body || {};
     if (!url) return res.status(400).json({ error: "Missing 'url'" });
 
     const resp = await fetch(url, {
       method,
       headers: { "Content-Type": "application/json", ...headers },
-      body: payload ? (typeof payload === "string" ? payload : JSON.stringify(payload)) : undefined,
+      body: body ? (typeof body === "string" ? body : JSON.stringify(body)) : undefined,
     });
 
     const text = await resp.text();
@@ -299,13 +280,9 @@ app.post("/proxy", async (req, res) => {
       data = { raw: text };
     }
 
-    return res.status(resp.status).json({
-      success: resp.ok,
-      status: resp.status,
-      data,
-    });
+    return res.status(resp.status).json({ success: resp.ok, status: resp.status, data });
   } catch (e) {
-    return res.status(502).json({ error: (e && e.message) || String(e) });
+    return res.status(502).json({ error: e?.message || String(e) });
   }
 });
 
