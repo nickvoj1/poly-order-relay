@@ -5,6 +5,12 @@ const crypto = require("crypto");
 const app = express();
 app.use(express.json());
 
+process.on('SIGTERM', function () {
+  console.log('SIGTERM received');
+  process.exit(0);
+});
+
+
 const PRIVATE_KEY = process.env.POLYMARKET_PRIVATE_KEY;
 const wallet = new ethers.Wallet(PRIVATE_KEY);
 
