@@ -156,10 +156,15 @@ async function executeTradeCore({ tokenId, side, amount, size, price, orderType 
   let lastError = "unknown";
   for (let attempt = 1; attempt <= 3; attempt++) {
     try {
-      const result = await client.createAndPostMarketOrder(
-        { tokenID, size: Number(qty.toFixed(2)), price: finalPrice, side: tradeSide },
-        undefined,
-        oType
+      const order = await client.createOrder({
+        tokenID,
+        price: finalPrice,
+        size: roundedAmount,
+        side: tradeSide,
+        orderType: oType,
+      });
+      const result = await client.postOrder(order, oType);
+
       );
 
       if (result?.success) {
