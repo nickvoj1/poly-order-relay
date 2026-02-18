@@ -1,31 +1,25 @@
 const express = require("express");
-const { ClobClient, Side, OrderType } = require("@polymarket/clob-client");
-const { Wallet } = require("ethers");
+const fetch = (...args) => import("node-fetch").then(({default: fetch}) => fetch(...args));
 
 const app = express();
 app.use(express.json());
 
 app.post("/order", async (req, res) => {
   try {
-    const { tokenId, side, price, size, orderType } = req.body;
+    // Expect the client (Lovable or another server) to send a ready-to-submit order object
+    // that Polymarket's CLOB accepts directly.[web:15][web:30]
+    const orderPayload = req.body;
 
-    const signer = new Wallet(process.env.POLYMARKET_PRIVATE_KEY);
-    const client = new ClobClient(
-      "https://clob.polymarket.com",
-      137,
-      signer
-    );
-
-
-    const response = await client.createAndPostOrder({
-      tokenID: tokenId,
-      price,
-      size,
-      side: side === "BUY" ? Side.BUY : Side.SELL,
-      orderType: OrderType[orderType || "GTC"],
+    const response = await fetch("https://clob.polymarket.com/order", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json"
+      },
+      body: JSON.stringify(orderPayload)
     });
 
-    res.json({ success: true, response });
+    const json = await response.json();
+    res.status(response.status).json(json);
   } catch (e) {
     console.error("order error", e);
     res.status(500).json({ success: false, error: e.message || "unknown" });
