@@ -14,7 +14,8 @@ app.post("/order", async (req, res) => {
       "https://clob.polymarket.com",
       137,
       signer
-    ); // basic auth via private key[web:18][web:32]
+    );
+
 
     const response = await client.createAndPostOrder({
       tokenID: tokenId,
@@ -22,7 +23,7 @@ app.post("/order", async (req, res) => {
       size,
       side: side === "BUY" ? Side.BUY : Side.SELL,
       orderType: OrderType[orderType || "GTC"],
-    });[web:19][web:34]
+    });
 
     res.json({ success: true, response });
   } catch (e) {
