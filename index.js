@@ -6,6 +6,24 @@ app.use(express.json());
 
 app.get("/health", (req, res) => res.json({ ok: true }));
 
+app.get("/test-clob", async (req, res) => {
+  try {
+    const response = await fetch("https://clob.polymarket.com/order", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({})
+    });
+    const text = await response.text();
+    res.json({ 
+      status: response.status,
+      geoblocked: text.includes("restricted"),
+      response: text.substring(0, 200)
+    });
+  } catch (e) {
+    res.json({ error: e.message });
+  }
+});
+
 app.post("/order", async (req, res) => {
   try {
     const response = await fetch("https://clob.polymarket.com/order", {
@@ -21,4 +39,6 @@ app.post("/order", async (req, res) => {
   }
 });
 
-app.listen(process.env.PORT || 3000);
+app.listen(process.env.PORT || 3000, () => {
+  console.log("poly-order-relay ready");
+});
