@@ -17,8 +17,13 @@
  */
 
 const express = require("express");
-const { ClobClient, Side, OrderType } = require("@polymarket/clob-client");
 const { Wallet } = require("ethers");
+let clobModPromise = null;
+async function getClobModule() {
+  if (!clobModPromise) clobModPromise = import("@polymarket/clob-client");
+  return clobModPromise;
+}
+
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -51,6 +56,7 @@ let cachedClient = null;
 let cachedCreds = null;
 
 async function getAuthedClient() {
+  const { ClobClient } = await getClobModule();
   const pk = process.env.POLYMARKET_PRIVATE_KEY;
   const proxyAddr = process.env.PROXY_WALLET_ADDRESS;
 
@@ -137,7 +143,9 @@ app.post("/trade", async (req, res) => {
 
     // Round amount to 2 decimal places
     const roundedAmount = Math.round(tradeAmount * 100) / 100;
-
+    
+    const { Side, OrderType } = await getClobModule();
+    
     const tradeSide = side.toUpperCase() === "BUY" ? Side.BUY : Side.SELL;
     const oType = orderType === "FOK" ? OrderType.FOK : OrderType.FAK;
 
