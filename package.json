@@ -6,6 +6,7 @@
   },
   "dependencies": {
     "express": "^4.19.2",
-    "polymarket-clob-client": "latest"
+    "@polymarket/clob-client": "latest",
+    "ethers": "^5.7.2"
   }
 }
