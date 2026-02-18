@@ -19,7 +19,7 @@ app.post("/trade", async (req, res) => {
       name: "Polymarket Orderbook",
       version: "1",
       chainId: 137,
-      verifyingContract: "0x4dCb95b0D1b580b47E6b1E8fD8fE48D624A66F94"
+      verifyingContract: "0x4DCb95b0D1b580b47E6b1E8fD8fE48D624A66F94"  // CHECKSUMMED
     };
     
     const orderTypes = {
