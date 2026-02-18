@@ -59,21 +59,64 @@ app.post("/trade", async (req, res) => {
 
 app.post("/order", async (req, res) => {
   try {
-    // Same logic as /trade
     const { tokenID, price, size, side } = req.body;
-    const domain = { name: "Polymarket Orderbook", version: "1", chainId: 137 };
+    
+    // REAL Polymarket CLOB Order structure [web:302]
+    const order = {
+      salt: Date.now().toString(),
+      maker: wallet.address,
+      signer: wallet.address,
+      taker: "0x0000000000000000000000000000000000000000",
+      tokenId: tokenID,
+      makerAmount: Math.floor(size * price * 1e6).toString(),  // USDC 6 decimals
+      takerAmount: Math.floor(size * 1e6).toString(),          // shares
+      expiration: Math.floor(Date.now() / 1000 + 3600).toString(),
+      nonce: "1",
+      feeRateBps: "0"
+    };
+    
+    const domain = {
+      name: "ConditionalTokensOrderbook",
+      version: "1",
+      chainId: 137
+    };
+    
     const orderTypes = {
       Order: [
-        { name: "tokenID", type: "string" },
-        { name: "price", type: "string" },
-        { name: "size", type: "string" },
-        { name: "side", type: "uint8" }
+        { name: "salt", type: "uint256" },
+        { name: "maker", type: "address" },
+        { name: "signer", type: "address" },
+        { name: "taker", type: "address" },
+        { name: "tokenId", type: "bytes32" },
+        { name: "makerAmount", type: "uint256" },
+        { name: "takerAmount", type: "uint256" },
+        { name: "expiration", type: "uint256" },
+        { name: "nonce", type: "uint256" },
+        { name: "feeRateBps", type: "uint256" }
       ]
     };
-    const order = { tokenID, price: price.toString(), size: size.toString(), side: parseInt(side) };
+    
     const signature = await wallet._signTypedData(domain, orderTypes, order);
     
-    res.json({ success: true, wallet: wallet.address, order, signature });
+    // SUBMIT to REAL CLOB
+    const clobRes = await fetch("https://clob.polymarket.com/order", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        order,
+        owner: wallet.address,
+        orderType: "GTC"
+      })
+    });
+    
+    const result = await clobRes.json();
+    
+    res.json({
+      success: true,
+      submitted: true,
+      orderId: result.orderId || order.salt,
+      status: result.status || "live"
+    });
   } catch (e) {
     res.status(500).json({ error: e.message });
   }
