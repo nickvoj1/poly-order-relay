@@ -1,33 +1,39 @@
 const express = require("express");
-const fetch = (...args) => import("node-fetch").then(({default: fetch}) => fetch(...args));
+const fetch = require("node-fetch");
+const HttpsProxyAgent = require("https-proxy-agent");
 
 const app = express();
 app.use(express.json());
 
 app.post("/order", async (req, res) => {
   try {
-    // Expect the client (Lovable or another server) to send a ready-to-submit order object
-    // that Polymarket's CLOB accepts directly.[web:15][web:30]
-    const orderPayload = req.body;
-
+    const payload = req.body;
+    
+    // Forward to Polymarket via your US GCP proxy (geo-bypass)
+    const proxyAgent = new HttpsProxyAgent("http://35.229.117.3:3128");
+    
     const response = await fetch("https://clob.polymarket.com/order", {
       method: "POST",
       headers: {
         "Content-Type": "application/json"
       },
-      body: JSON.stringify(orderPayload)
+      agent: proxyAgent,
+      body: JSON.stringify(payload)
     });
-
+    
     const json = await response.json();
     res.status(response.status).json(json);
   } catch (e) {
-    console.error("order error", e);
-    res.status(500).json({ success: false, error: e.message || "unknown" });
+    console.error("order error:", e.message);
+    res.status(500).json({ error: e.message });
   }
 });
 
-app.get("/health", (_req, res) => res.json({ ok: true }));
+app.get("/health", (req, res) => {
+  res.json({ ok: true, timestamp: new Date().toISOString() });
+});
 
-app.listen(process.env.PORT || 3000, () =>
-  console.log("poly-order-relay listening")
-);
+const port = process.env.PORT || 3000;
+app.listen(port, () => {
+  console.log(`poly-order-relay listening on port ${port}`);
+});
