@@ -1,16 +1,15 @@
 const express = require("express");
 const fetch = require("node-fetch");
-const HttpsProxyAgent = require("https-proxy-agent");
+const { HttpsProxyAgent } = require("https-proxy-agent");
 
 const app = express();
 app.use(express.json());
 
+const proxyAgent = new HttpsProxyAgent("http://35.229.117.3:3128");
+
 app.post("/order", async (req, res) => {
   try {
     const payload = req.body;
-    
-    // Forward to Polymarket via your US GCP proxy (geo-bypass)
-    const proxyAgent = new HttpsProxyAgent("http://35.229.117.3:3128");
     
     const response = await fetch("https://clob.polymarket.com/order", {
       method: "POST",
@@ -33,7 +32,6 @@ app.get("/health", (req, res) => {
   res.json({ ok: true, timestamp: new Date().toISOString() });
 });
 
-const port = process.env.PORT || 3000;
-app.listen(port, () => {
-  console.log(`poly-order-relay listening on port ${port}`);
+app.listen(process.env.PORT || 3000, () => {
+  console.log("poly-order-relay listening");
 });
