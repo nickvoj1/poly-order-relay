@@ -1,5 +1,6 @@
 const express = require("express");
 const { ethers } = require("ethers");
+const crypto = require("crypto");
 
 const app = express();
 app.use(express.json());
@@ -7,34 +8,43 @@ app.use(express.json());
 const PRIVATE_KEY = process.env.POLYMARKET_PRIVATE_KEY;
 const wallet = new ethers.Wallet(PRIVATE_KEY);
 
-app.get("/health", (req, res) => res.json({ ok: true }));
+app.get("/health", (req, res) => res.json({ ok: true, wallet: wallet.address }));
 
 app.post("/trade", async (req, res) => {
   try {
-    const params = req.body;
+    const { tokenID, price, size, side } = req.body;
     
-    // Manual Polymarket order signing
+    // CORRECT Polymarket EIP-712 structure
     const domain = {
-      name: 'Polymarket Order',
-      version: '1',
+      name: "Polymarket Orderbook",
+      version: "1",
       chainId: 137,
-      verifyingContract: '0x4dCb95b0D1b580b47E6b1E8fD8fE48D624A66F94'
+      verifyingContract: "0x4dCb95b0D1b580b47E6b1E8fD8fE48D624A66F94"
+    };
+    
+    const orderTypes = {
+      Order: [
+        { name: "tokenID", type: "string" },
+        { name: "price", type: "string" },
+        { name: "size", type: "string" },
+        { name: "side", type: "uint8" }
+      ]
     };
     
     const order = {
-      tokenID: params.tokenID,
-      price: params.price,
-      size: params.size,
-      side: params.side
+      tokenID,
+      price: price.toString(),
+      size: size.toString(),
+      side: parseInt(side)
     };
     
-    const signature = await wallet._signTypedData(domain, order);
+    const signature = await wallet._signTypedData(domain, orderTypes, order);
     
     res.json({ 
       success: true, 
+      wallet: wallet.address,
       order,
-      signature,
-      wallet: wallet.address 
+      signature 
     });
   } catch (e) {
     res.status(500).json({ error: e.message });
