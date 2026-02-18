@@ -23,10 +23,10 @@ app.post("/trade", async (req, res) => {
     // CORRECT Polymarket EIP-712 structure
     const domain = {
       name: "Polymarket Orderbook",
-      version: "1",
-      chainId: 137,
-      verifyingContract: "0x4DCb95b0D1b580b47E6b1E8fD8fE48D624A66F94"  // CHECKSUMMED
-    };
+      version: "1", 
+      chainId: 137
+      // NO verifyingContract = no checksum validation
+};
     
     const orderTypes = {
       Order: [
