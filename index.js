@@ -213,13 +213,79 @@ app.get("/health", (_req, res) => {
 
 // Preferred route
 app.post("/trade", async (req, res) => {
+  const { tokenId, side, amount, price, size, orderType = "FAK" } = req.body;
+
+  if (!tokenId || !side || (!amount && !size)) {
+    return res.status(400).json({ error: "Missing: tokenId, side, amount/size" });
+  }
+
   try {
-    const out = await executeTradeCore(req.body || {});
-    return res.status(out.status).json(out.body);
-  } catch (e) {
-    return res.status(500).json({ error: e?.message || String(e) });
+    const mod = await getClobModule();
+    const Side = mod.Side || mod.default?.Side;
+    const OrderType = mod.OrderType || mod.default?.OrderType;
+    if (!Side || !OrderType) throw new Error("clob-client enum exports missing");
+
+    const client = await getAuthedClient();
+
+    const tokenID = String(tokenId).startsWith("0x")
+      ? BigInt(tokenId).toString(10)
+      : String(tokenId);
+
+    const tradeAmount = Math.max(5, Number(amount || size));
+    if (!Number.isFinite(tradeAmount)) {
+      return res.status(400).json({ error: "Invalid amount/size" });
+    }
+
+    let tickSize = 0.01;
+    try {
+      const book = await client.getOrderBook(tokenID);
+      tickSize = Number(book?.market?.minimum_tick_size || 0.01);
+    } catch {}
+
+    const tradeSide = String(side).toUpperCase() === "BUY" ? Side.BUY : Side.SELL;
+    const oType = String(orderType).toUpperCase() === "FOK" ? OrderType.FOK : OrderType.FAK;
+    const finalPrice = Math.max(
+      tickSize,
+      Math.min(1 - tickSize, Math.round(Number(price || 0.5) / tickSize) * tickSize)
+    );
+
+    const order = await client.createOrder({
+      tokenID,
+      price: finalPrice,
+      size: Number(tradeAmount.toFixed(2)),
+      side: tradeSide,
+      orderType: oType,
+    });
+
+    const result = await client.postOrder(order, oType);
+
+    if (result?.success) {
+      return res.json({
+        success: true,
+        submitted: true,
+        orderID: result.orderID || result.order_id || null,
+        data: result,
+        finalPrice,
+        tickSize: String(tickSize),
+      });
+    }
+
+    return res.status(400).json({
+      success: false,
+      submitted: false,
+      error: result?.error || result?.errorMsg || "Order rejected",
+      finalPrice,
+      tickSize: String(tickSize),
+    });
+  } catch (err) {
+    return res.status(500).json({
+      success: false,
+      submitted: false,
+      error: err?.message || String(err),
+    });
   }
 });
+
 
 // Legacy route:
 // 1) {order, headers} => forward pre-signed order to CLOB
